@@ -5,9 +5,6 @@ services:
         image: 'gitlab/gitlab-ee:latest'
         restart: always
         hostname: 'gitlab.local'
-        environment:
-          GITLAB_OMNIBUS_CONFIG: |
-            external_url 'https://gitlab.example.com'
         ports:
           - '80:80'
           - '443:443'
@@ -23,8 +20,8 @@ services:
         restart: always
         ports:
           - '5000:5000'
-          - '443:443'
-          - '22:22'
+          #- '443:443'
+          #- '22:22'
         volumes:
-          - '/var/registry:/var/lib/registry'
+          - '/var/docker_registry:/var/lib/registry'
         

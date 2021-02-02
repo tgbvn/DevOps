@@ -3,6 +3,7 @@ services:
     jenkins:
         container_name: jenkins
         build: 
+            context: ${PWD}
             dockerfile: jenkins_Dockerfile
         image: jenkins-docker
         ports:
