@@ -20,8 +20,6 @@ services:
         restart: always
         ports:
           - '5000:5000'
-          #- '443:443'
-          #- '22:22'
         volumes:
           - '/var/docker_registry:/var/lib/registry'
         

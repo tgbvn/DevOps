@@ -1,4 +1,4 @@
-
+#Chay gitlab va registry
 mkdir -p /var/gitlab/config
 mkdir -p /var/gitlab/logs
 mkdir -p /var/gitlab/data

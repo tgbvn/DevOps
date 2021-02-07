@@ -1,0 +1,95 @@
+version: "3.9"
+
+services:
+
+    gitlab:
+        image: gitlab/gitlab-ee:latest
+        hostname: 'gitlab.local'
+        ports:
+          - '80:80'
+          - '443:443'
+          - '22:22'
+        networks:
+          - gitlab
+        volumes:
+          - gitlab-data:/etc/gitlab
+          - gitlab-logs:/var/log/gitlab
+          - gitlab-config:/var/opt/gitlab
+        environment:
+          GITLAB_OMNIBUS_CONFIG: "from_file('/omnibus_config.rb')"
+        configs:
+          - source: gitlab
+            target: /omnibus_config.rb
+        deploy:
+          replicas: 1
+          restart_policy:
+            condition: on-failure
+          placement:
+            constraints: 
+                - "node.labels.type == repository"
+        secrets:
+          - gitlab_root_password
+
+    registry:
+        image: registry:2.6.2
+        hostname: 'registry.local'
+        ports:
+          - '5000:5000'
+        networks:
+          - registry
+        volumes:
+          - registry-data:/var/lib/registry
+        environment:
+          REGISTRY_HTTP_TLS_CERTIFICATE: /run/secrets/registry_cert
+          REGISTRY_HTTP_TLS_KEY: /run/secrets/registry_key
+        deploy:
+          replicas: 1
+          restart_policy:
+            condition: on-failure
+          placement:
+            constraints: 
+                - "node.labels.type == repository"
+        secrets:
+          - registry_cert
+          - registry_key
+    
+    jenkins:
+        image: jenkins-docker
+        ports:
+            - '8080:8080'
+            - '50000:50000'
+        networks:
+          - gitlab
+          - registry
+        volumes:
+            - jenkins-data:/var/jenkins_home
+            - /var/run/docker.sock:/var/run/docker.sock
+        deploy:
+          replicas: 1
+          placement:
+            constraints: 
+                - "node.role == manager"
+
+
+networks:
+  gitlab:
+  registry:
+
+volumes:
+  gitlab-data:
+  gitlab-logs:
+  gitlab-config:
+  registry-data:
+  jenkins-data:
+
+configs:
+  gitlab:
+    file: ./gitlab.rb
+
+secrets:
+  gitlab_root_password:
+    file: ./root_password.txt
+  registry_cert:
+    file: ./certs/registry.crt
+  registry_key:
+    file: ./certs/registry.key
