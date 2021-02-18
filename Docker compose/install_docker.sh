@@ -1,5 +1,4 @@
 # Cai dat Docker
-apt-get update
 apt-get install -y \
     apt-transport-https \
     ca-certificates \
@@ -13,10 +12,9 @@ add-apt-repository \
    stable"
 apt-get install -y docker-ce docker-ce-cli containerd.io
 systemctl enable docker
-systemctl start docker
+systemctl start docker && usermod -a -G docker $USER
 
 # Cai dat Docker-compose
 curl -L "https://github.com/docker/compose/releases/download/1.28.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
 chmod +x /usr/local/bin/docker-compose
 
-usermod -a -G docker $USER

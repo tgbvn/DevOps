@@ -1,4 +1,5 @@
 # Tuong tac voi Docker tu ben trong container jenkins
+# Docker in Docker
 
 FROM jenkins/jenkins:lts
 USER root

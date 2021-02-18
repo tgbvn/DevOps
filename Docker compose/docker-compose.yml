@@ -1,0 +1,53 @@
+version: "3.9"
+services:
+
+    jenkins:
+        container_name: jenkins
+        user: 1000:999
+        image: jenkins/jenkins:lts
+        hostname: jenkins.local
+        ports:
+            - '8080:8080'
+            - '50000:50000'
+        volumes:
+            - jenkins-data:/var/jenkins_home
+            - /var/run/docker.sock:/var/run/docker.sock
+            - /usr/bin/docker:/usr/bin/docker
+
+    gitlab:
+        container_name: gitlab
+        image: gitlab/gitlab-ee:13.3.2-ee.0
+        restart: always
+        hostname: gitlab.local
+        ports:
+          - '80:80'
+          - '443:443'
+          - '22:22'
+        volumes:
+          - gitlab-config:/etc/gitlab
+          - gitlab-logs:/var/log/gitlab
+          - gitlab-data:/var/opt/gitlab
+        environment: 
+          GITLAB_OMNIBUS_CONFIG: |
+            gitlab_rails['initial_root_password'] = '12341234'
+
+    registry:
+        container_name: registry
+        image: registry:2.6.2
+        hostname: registry.local
+        restart: always
+        ports:
+          - '5000:5000'
+        volumes:
+          - registry-data:/var/lib/registry
+          - ${PWD}/certs:/${PWD}/certs
+        environment:
+          REGISTRY_HTTP_TLS_CERTIFICATE: ${PWD}/certs/registry.local.crt
+          REGISTRY_HTTP_TLS_KEY: ${PWD}/certs/registry.local.key
+
+volumes:
+  gitlab-data:
+  gitlab-logs:
+  gitlab-config:
+  registry-data:
+  jenkins-data:
