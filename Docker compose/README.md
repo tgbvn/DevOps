@@ -11,15 +11,15 @@ Chạy GitLab, Jenkins, Registry trên cùng host
 
 $ sudo nano /lib/systemd/system/docker.service
 
-Chỉnh sửa: ExecStart=/usr/bin/docker daemon -H fd:// -H tcp://0.0.0.0:4243
+Chỉnh sửa: ExecStart=/usr/bin/docker daemon -H fd:// -H tcp://0.0.0.0:2375
 
-$systemctl daemon-reload
+$ systemctl daemon-reload
 
-$sudo systemctl restart docker
+$ sudo systemctl restart docker
 
 Kiểm tra lại:
 
-$ curl -X GET <http://localhost:4243/images/json>
+$ curl -X GET <http://localhost:2375/images/json>
 
 Câu lệnh trên hiển thị các images trên host cho thấy docker deamon trên host đã có thể lắng nghe kết nối từ các ứng dụng khác.
 
