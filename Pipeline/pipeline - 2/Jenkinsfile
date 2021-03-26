@@ -1,0 +1,95 @@
+pipeline {
+    agent none
+    environment { 
+        DOCKER_REGISTRY = 'localhost:5000'
+        IMAGE_NAME = 'flask-docker'
+        DOCKER_IMAGE = '${DOCKER_REGISTRY}' + '/' + '${IMAGE_NAME}'
+        DOCKER_TAG="latest"
+    }
+    stages {
+        stage('Code Quality Check via SonarQube') {
+            agent { docker {image 'sonarsource/sonar-scanner-cli'} }
+            environment {
+                PROJECT_NAME = "Flask-demo"
+                SONAR_HOST = "http://172.17.0.1:9000"
+            }
+            steps {
+                withSonarQubeEnv("sonarqube-container") {
+                    sh "sonar-scanner \
+                    -D sonar.projectKey=${PROJECT_NAME} \
+                    -D sonar.sources=. \
+                    -D sonar.host.url=${SONAR_HOST}"
+                }
+                timeout(time: 1, unit: 'MINUTES') {
+                        waitForQualityGate abortPipeline: true
+                    }  
+                updateGitlabCommitStatus name: 'Code Quality Check', state: 'success'
+            }
+        }
+
+        stage('Build application container'){
+            agent { node {label 'master'} }
+            steps{
+                sh "docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} ."
+                updateGitlabCommitStatus name: 'Build', state: 'success'
+            }
+        }
+
+        stage('Run application in background'){
+            agent { node {label 'master'} }
+            environment {
+                CONTAINER_NAME = "${IMAGE_NAME}-testing"             
+            }
+            steps{
+                sh "docker run -d -p 5050:5000 --name ${CONTAINER_NAME} ${DOCKER_IMAGE}:${DOCKER_TAG}"
+            }
+        }
+
+        stage('ZAP quick scan of application'){
+            agent { 
+                docker{
+                    image 'owasp/zap2docker-stable'
+                    args '-u zap -v zap-reports:/zap --entrypoint='
+                } 
+            }
+            environment {
+                ZAP_SERVICE = '172.17.0.1'
+                CONTAINER_ADDRESS = "http://localhost:5050"             
+            }
+            steps{
+                script {
+                    try {
+                        sh 'zap-cli --zap-url ${ZAP_SERVICE} -p 8000 quick-scan -s xss,sqli ${CONTAINER_ADDRESS}'
+                    }
+                    catch (Exception e) {
+                        echo 'Exception occurred: ' + e.toString()
+                        sh 'zap-cli --zap-url ${ZAP_SERVICE} -p 8000 report -o /zap/zap_report.html -f html'
+                    }
+                }
+                updateGitlabCommitStatus name: 'ZAP quick scan', state: 'success'
+            }
+        }
+
+        stage('Push application container to docker registry'){
+            agent { node {label 'master'} }
+            steps{
+                sh "docker push ${DOCKER_IMAGE}:${DOCKER_TAG}"
+                sh "docker container rm -f ${IMAGE_NAME}-testing"
+                sh "docker image rm -f ${DOCKER_IMAGE}:${DOCKER_TAG}"
+                updateGitlabCommitStatus name: 'Push', state: 'success'
+            }
+        }
+
+        stage('Deploy to staging'){
+            agent { node {label 'master'} }
+            environment {
+                CONTAINER_NAME = "${IMAGE_NAME}-staging"             
+            }
+            steps{
+                sh "docker run -d -p 5555:5000 --name ${CONTAINER_NAME} ${DOCKER_IMAGE}:${DOCKER_TAG}"
+                updateGitlabCommitStatus name: 'Deploy', state: 'success'
+            }
+        }
+
+    }
+}
