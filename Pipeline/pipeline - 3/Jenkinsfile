@@ -1,0 +1,143 @@
+pipeline {
+    agent none
+    environment { 
+        DOCKER_REGISTRY = 'localhost:5000'
+        IMAGE_NAME = 'web-demo'
+        DOCKER_IMAGE = '${DOCKER_REGISTRY}' + '/' + '${IMAGE_NAME}'
+        DOCKER_TAG="latest"
+    }
+
+    stages {
+        stage('Code Quality Check via SonarQube') {
+            agent { docker {image 'sonarsource/sonar-scanner-cli'} }
+            environment {
+                PROJECT_NAME = "Web-demo"
+                SONAR_HOST = "http://172.17.0.1:9000"
+            }
+            steps {
+                withSonarQubeEnv("sonarqube-container") {
+                    sh "sonar-scanner \
+                    -D sonar.projectKey=${PROJECT_NAME} \
+                    -D sonar.sources=. \
+                    -D sonar.host.url=${SONAR_HOST}"
+                }
+                timeout(time: 5, unit: 'MINUTES') {
+                        waitForQualityGate abortPipeline: false
+                    }  
+                updateGitlabCommitStatus name: 'Code Quality Check', state: 'success'
+            }
+        }
+
+        stage('Gitleaks'){
+            agent { 
+                docker{
+                    image 'zricethezav/gitleaks'
+                    args '-v devops_jenkins-data:/tmp -v reports:/root/reports --entrypoint='
+                } 
+            }
+            environment {
+                GIT_DIR = "${WORKSPACE.substring(18)}"
+            }         
+            steps{
+                script {
+                    try {
+                        sh 'gitleaks -p /tmp/${GIT_DIR} -v --config-path=/tmp/${GIT_DIR}/leaky-repo.toml --commit=latest -f json -o /root/reports/gitleaks-report.json'
+                    }
+                    catch (Exception e) {
+                        echo 'Exception occurred: ' + e.toString()
+                    }
+                }
+                updateGitlabCommitStatus name: 'Gitleaks', state: 'success'
+            }
+        }
+        
+        stage('Dependency check'){
+            agent { 
+                docker{
+                    image 'aquasec/trivy'
+                    args '-u root -v trivy-cache:/root/.cache/ -v devops_jenkins-data:/tmp/ -v reports:/root/report  --entrypoint='
+                } 
+            }
+            environment {
+                GIT_DIR = "${WORKSPACE.substring(18)}"
+            }
+            steps{
+                sh 'trivy fs -f json -o /root/report/trivy-results.json /tmp/${GIT_DIR} '
+                updateGitlabCommitStatus name: 'Dependency check', state: 'success'
+            }
+        }
+
+        stage('Build application container'){
+            agent { node {label 'master'} }
+            environment {
+                DB_HOST = "172.17.0.1"
+                DB_PORT = "5432"
+            }
+            steps{
+                sh "docker build --build-arg DB_HOST=${DB_HOST} --build-arg DB_PORT=${DB_PORT} -t ${DOCKER_IMAGE}:${DOCKER_TAG} ."
+                updateGitlabCommitStatus name: 'Build', state: 'success'
+            }
+        }
+
+        stage('Push application container to docker registry'){
+            agent { node {label 'master'} }
+            steps{
+                sh "docker push ${DOCKER_IMAGE}:${DOCKER_TAG}"
+                sh "docker container rm -f ${IMAGE_NAME}-testing"
+                sh "docker image rm -f ${DOCKER_IMAGE}:${DOCKER_TAG}"
+                updateGitlabCommitStatus name: 'Push', state: 'success'
+            }
+        }
+
+        stage('Deploy to staging'){
+            agent { node {label 'master'} }
+            environment {
+                CONTAINER_NAME = "${IMAGE_NAME}-staging"  
+                CONTAINER_PORT = "3000:3000"
+                DB_HOST= "172.17.0.1"
+                DB_USER= "root"
+                DB_PASS= "Thaovy24"
+                DB_NAME= "product"
+                DB_PORT= "5432"
+                NODE_PORT = "3000"        
+            }
+            steps{
+                sh "docker run -d -p ${CONTAINER_PORT} --name ${CONTAINER_NAME} -e DB_HOST=${DB_HOST} -e DB_NAME=${DB_NAME} -e DB_PORT=${DB_PORT} -e DB_USER=${DB_USER} -e DB_PASS=${DB_PASS} -e PORT=${NODE_PORT} ${DOCKER_IMAGE}:${DOCKER_TAG}"
+            }
+        }
+
+        stage('ZAP quick scan of application'){
+            agent { 
+                docker{
+                    image 'owasp/zap2docker-stable'
+                    args '-u root -v zap-wrk:/zap/wrk/ -v devops_jenkins-data:/tmp -v reports:/root/report --entrypoint='
+                } 
+            }
+            environment {
+                ZAP_SERVICE = '172.17.0.1'
+                CONTAINER_ADDRESS = "http://172.17.0.1:3000"      
+                GIT_DIR = "${WORKSPACE.substring(18)}"       
+            }
+            steps{
+                sh 'cp /tmp/${GIT_DIR}/zap-baseline.conf /zap/wrk/'
+                script {
+                    try{
+                        sh '/zap/zap-baseline.py -t ${CONTAINER_ADDRESS} -c zap-baseline.conf -j /root/report/zap-baseline-report.json'
+                    }
+                    catch (Exception e) {
+                        echo 'Exception occurred: ' + e.toString()
+                    }
+                    try {
+                        sh 'zap-cli --zap-url ${ZAP_SERVICE} -p 8000 quick-scan -s xss --spider -r ${CONTAINER_ADDRESS}'
+                    }
+                    catch (Exception e) {
+                        echo 'Exception occurred: ' + e.toString()
+                        sh 'zap-cli --zap-url ${ZAP_SERVICE} -p 8000 report -o /root/report/zap-quickscan-report.html -f html'
+                    }
+                }
+                updateGitlabCommitStatus name: 'ZAP quick scan', state: 'success'
+            }
+        }
+
+    }
+}
